@@ -30,7 +30,12 @@ cabal_url=$hackage_url/package/cabal-install
 #=========================================================================
 # HELPER FUNCTIONS
 #=========================================================================
+function debug_msg() {
+  echo "# DEBUG: $@"
+}
+#---------------------------------------------------------------
 function dependencies_check() {
+  debug_msg dependencies_check
   to_install=""
   for pkg in libbsd-dev libgmp3-dev zlib1g-dev freeglut3-dev; do
     pkg_list_file=$(find /var/lib/dpkg/info/ | grep list | grep -i $pkg)
@@ -46,12 +51,17 @@ function dependencies_check() {
 }
 #---------------------------------------------------------------
 function dirs_make() {
+  debug_msg dirs_make
   mkdir -p $ghc_root $down_root $cabal_root
 }
 #---------------------------------------------------------------
 function links_make() {
+  debug_msg links_make
   cd $HOME
+  # haskell link
+  rm -f haskell
   ln -sf $ghc_root haskell
+  # .ghc, .cabal
   for dir in .ghc .cabal; do
     mkdir -p $ghc_root/$dir
     ln -sf $ghc_root/$dir .
@@ -59,6 +69,7 @@ function links_make() {
 }
 #---------------------------------------------------------------
 function download() {
+  debug_msg download
   # ghc
   ghc_pkg_full=$down_root/$ghc_pkg
   [[ ! -f "$ghc_pkg_full" ]] && wget $ghc_url -O $ghc_pkg_full
@@ -69,6 +80,7 @@ function download() {
 }
 #---------------------------------------------------------------
 function ghc_install() {
+  debug_msg ghc_install
   [[ -f $ghc_root/usr/bin/runghc ]] && return
   # install
   cd $down_root || exit 1
@@ -79,6 +91,7 @@ function ghc_install() {
 }
 #---------------------------------------------------------------
 function cabal_install() {
+  debug_msg cabal_install
   [[ -f $ghc_root/.cabal/bin/cabal ]] && return
   # install
   cd $down_root || exit 1
@@ -88,36 +101,53 @@ function cabal_install() {
 }
 #---------------------------------------------------------------
 function cabal_config_write() {
+  debug_msg cabal_config_write
   [[ -f $cabal_root/config ]] && return
   nice cabal update || exit 1
   sed -rie 's/-- library-profiling: False/library-profiling: True/;s/-- documentation: False/documentation: True/;s|-- prefix: (.+)/.cabal|prefix: \1/haskell/usr|;s|-- docdir: \$datadir/doc/\$pkgid|docdir: \$datadir/doc/\$compiler/\$pkgid|' $cabal_root/config || exit 1
 }
 #---------------------------------------------------------------
 function cabal_reinstall_for_profiling() {
+  debug_msg cabal_reinstall_for_profiling
   [[ -f $HOME/haskell/usr/bin/happy ]] && return
   cabal install --reinstall $(ghc-pkg list | awk -v p=0 '/\.ghc/{p=1} p==1 && /^ /{print $0}') || exit 1
 }
 #---------------------------------------------------------------
+function _cabal_install_pkg() {
+  debug_msg _cabal_install_pkg
+  local pkg="$1"
+  # already registered? skip installation
+  ghc-pkg list | grep -v package.conf.d | grep -Eiq "$pkg-[[:digit:]+.*]+" && return
+  echo "#==== INSTALLING $pkg ===="
+  nice cabal install $pkg || exit 1
+}
+#---------------------------------------------------------------
 function packages_system() {
+  debug_msg packages_system
   [[ -f $HOME/haskell/usr/bin/c2hs ]] && return
-  nice cabal install happy || exit 1
-  nice cabal install alex || exit 1
-  nice cabal install c2hs || exit 1
+  for pkg in happy alex c2hs; do
+    _cabal_install_pkg $pkg
+  done
 }
 #---------------------------------------------------------------
 function packages_user() {
+  debug_msg packages_user
   for pkg in \
+    hscolour \
     criterion \
-    repa-examples \
-    accelerate-cuda accelerate-io accelerate-examples \
+    repa repa-io repa-algorithms \
+    cuda \
+    accelerate-io accelerate-cuda \
     ; do
-    ghc-pkg list | grep -q $pkg || nice cabal install $pkg || exit 1
+    _cabal_install_pkg $pkg
   done
+    # language-c-quote: infinite wait
+    # repa-examples accelerate-examples
 }
 #=========================================================================
 # MAIN
 #=========================================================================
-dependencies_check
+# dependencies_check
 dirs_make
 links_make
 download
@@ -126,4 +156,4 @@ cabal_install
 cabal_config_write
 cabal_reinstall_for_profiling
 packages_system
-packages_user
+# packages_user
